@@ -1,0 +1,226 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { R2_PUBLIC_URL } from '../config';
+---
+
+<Layout title="Remittance Calculator | Forex Rates India">
+  <div class="report-page" x-data="calculator" x-init="init()" x-cloak data-r2-url={R2_PUBLIC_URL}>
+    <div class="report-header">
+      <div>
+        <div class="eyebrow">Transfer model</div>
+        <h1 class="report-title">Net INR payout after fees</h1>
+        <p class="report-subtitle">Compare gross conversion, estimated provider fees, and final payout from the latest TT buying rate snapshot.</p>
+      </div>
+      <div class="report-actions">
+        <a href="/" class="btn">Dashboard</a>
+      </div>
+    </div>
+
+    <div class="notice warn">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--warn)" stroke-width="2" stroke-linecap="round" style="flex-shrink: 0; margin-top: 1px;"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div style="font-size: 0.8rem;">
+        <strong style="display: block; margin-bottom: 2px; color: var(--text-primary);">Rates already include bank markup</strong>
+        Fees are estimates. Intermediary SWIFT deductions and FIRC charges can change the actual payout.
+      </div>
+    </div>
+
+    <template x-if="loading">
+      <div style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="height: 92px;" class="skeleton"></div>
+        <div style="height: 200px;" class="skeleton"></div>
+      </div>
+    </template>
+
+    <template x-if="error">
+      <div class="error-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--loss)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        <p x-text="error"></p>
+      </div>
+    </template>
+
+    <template x-if="!loading && !error">
+      <div class="fade-up report-grid">
+        <div class="panel transfer-panel">
+          <div class="panel-head">
+            <div>
+              <div class="panel-title">Scenario</div>
+              <div class="panel-note">Amount sent from foreign currency to INR</div>
+            </div>
+            <template x-if="best">
+              <span class="badge badge-live" x-text="best.bankName + ' leads'"></span>
+            </template>
+          </div>
+          <div class="panel-body transfer-body">
+            <div class="send-control">
+              <label>You send</label>
+              <div class="input-combo">
+                <input type="number" x-model.number="amount" min="1" step="any"
+                  style="flex: 1; min-width: 120px; padding: 11px 12px; border: none; background: transparent; color: var(--text-primary); font-size: 1.15rem; font-weight: 700; font-family: var(--font-mono); outline: none;" />
+                <select x-model="currency"
+                  style="padding: 9px 10px; border: 0; border-inline-start: 1px solid var(--border); background: var(--bg-card); color: var(--text-primary); font-size: 0.9rem; font-weight: 700; font-family: var(--font-mono); cursor: pointer; outline: none;">
+                  <template x-for="c in currencyList" :key="c.code">
+                    <option :value="c.code" x-text="c.code"></option>
+                  </template>
+                </select>
+              </div>
+            </div>
+            <template x-if="best">
+              <div class="best-summary">
+                <div>
+                  <div class="kpi-label">Best net payout</div>
+                  <div class="kpi-value rate-best" x-text="'₹' + formatRate(best.net)"></div>
+                </div>
+                <div class="kpi-meta">
+                  <span x-text="best.bankName"></span>
+                  <span> at ₹<span x-text="formatRate(best.rate)"></span></span>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+
+        <template x-if="results.length > 0">
+          <div class="panel" style="overflow: hidden;">
+            <div class="panel-head">
+              <div class="panel-title">Provider comparison</div>
+              <div class="panel-note" x-text="results.length + ' offers ranked by net payout'"></div>
+            </div>
+            <div class="table-scroll">
+              <table class="rates-table">
+                <thead>
+                  <tr>
+                    <th>Provider</th>
+                    <th style="text-align: right;">Rate (₹)</th>
+                    <th style="text-align: right;">Gross</th>
+                    <th style="text-align: right;">Fee</th>
+                    <th style="text-align: right;">Net</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(r, idx) in results" :key="r.bankId">
+                    <tr :class="idx === 0 ? 'rate-best-bg' : ''">
+                      <td>
+                        <a :href="'/bank/' + r.bankId" style="font-weight: 600; color: var(--text-primary); text-decoration: none;">
+                          <span x-text="r.bankName"></span>
+                          <template x-if="idx === 0">
+                            <span class="badge badge-live" style="margin-left: 6px;">Best</span>
+                          </template>
+                        </a>
+                        <div style="font-size: 0.68rem; color: var(--text-muted); margin-top: 2px;" x-text="r.feeNote"></div>
+                      </td>
+                      <td style="text-align: right;" class="rate-cell" x-text="'₹' + formatRate(r.rate)"></td>
+                      <td style="text-align: right;" class="rate-cell" x-text="'₹' + formatRate(r.gross)"></td>
+                      <td style="text-align: right;">
+                        <span :style="r.feeType === 'pct' ? 'color: var(--warn)' : 'color: var(--text-muted)'">
+                          <span x-text="'₹' + formatRate(r.fee)"></span>
+                          <span x-show="r.feeType === 'pct'" style="font-size: 0.68rem; color: var(--warn);" x-text="' (' + r.feeRate + '%)'" ></span>
+                        </span>
+                      </td>
+                      <td style="text-align: right;">
+                        <span class="rate-cell" :class="idx === 0 ? 'rate-best glow-accent' : ''" x-text="'₹' + formatRate(r.net)"></span>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <p style="font-size: 0.74rem; color: var(--text-muted);">
+          Estimates include 18% GST where modeled. Exchange rate margins are already part of the displayed bank rates. Verify fees with your provider before transferring.
+        </p>
+      </div>
+    </template>
+  </div>
+</Layout>
+
+<style>
+  .transfer-body { display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(260px, 1fr); gap: 14px; align-items: stretch; }
+  .send-control label { display: block; font-size: 0.68rem; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 6px; }
+  .input-combo { display: flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-inset); min-height: 48px; }
+  .best-summary { display: flex; justify-content: space-between; gap: 16px; align-items: center; padding: 14px; border-radius: var(--radius); border: 1px solid color-mix(in oklch, var(--accent) 24%, var(--border)); background: var(--accent-dim); }
+  @media (max-width: 760px) { .transfer-body { grid-template-columns: 1fr; } .best-summary { align-items: flex-start; flex-direction: column; } }
+</style>
+
+<script is:inline>
+function calculator() {
+  const config = getForexConfig();
+  const bankNames = config.bankNames || {};
+  const GST_PCT = 18;
+  const BANK_FEES = {
+    hdfc: { type: 'flat', value: 250, note: '₹250 fee + 18% GST (higher for large transfers)' },
+    axis: { type: 'flat', value: 250, note: '₹250 fee + 18% GST (higher for large transfers)' },
+    icici: { type: 'flat', value: 200, note: '₹200 fee + 18% GST (up to ₹1,000 for large transfers)' },
+    kotak: { type: 'flat', value: 250, note: '₹250 fee + 18% GST (free for select accounts)' },
+    pnb: { type: 'flat', value: 250, note: '₹250 fee + 18% GST (higher for large transfers)' },
+    sbi: { type: 'flat', value: 250, note: '₹250 fee + 18% GST (higher for large transfers)' },
+    wise: { type: 'pct', value: 0.6, note: '~0.6% of amount (varies by method)' },
+  };
+
+  return {
+    loading: true, error: null,
+    rates: {},
+    amount: 1000,
+    currency: 'USD',
+    currencyList: (config.currencies || []).map(function(c) { return {code: c.code, name: c.name}; }),
+
+    get results() {
+      var self = this;
+      if (!this.rates[this.currency] || !this.amount || this.amount <= 0) return [];
+      var row = this.rates[this.currency];
+      var results = [];
+      for (var bankId in row) {
+        var entry = row[bankId];
+        var rate = entry.ttBuying / entry.unit;
+        var gross = this.amount * rate;
+        var feeInfo = BANK_FEES[bankId];
+        var fee = 0;
+        if (feeInfo) {
+          fee = feeInfo.type === 'flat' ? feeInfo.value * (1 + GST_PCT / 100) : (gross * feeInfo.value / 100);
+        }
+        var net = gross - fee;
+        results.push({
+          bankId: bankId,
+          bankName: bankNames[bankId] || bankId,
+          rate: rate, gross: gross, fee: fee, net: net,
+          feeNote: feeInfo ? feeInfo.note : '',
+          feeType: feeInfo ? feeInfo.type : 'flat',
+          feeRate: feeInfo && feeInfo.type === 'pct' ? feeInfo.value : null,
+        });
+      }
+      results.sort(function(a, b) { return b.net - a.net; });
+      return results;
+    },
+
+    get best() {
+      return this.results.length > 0 ? this.results[0] : null;
+    },
+
+    async init() {
+      var self = this;
+      var r2url = this.$el.dataset.r2Url;
+      try {
+        var res = await fetch(r2url + '/latest.json');
+        var data = await res.json();
+        if (!res.ok) throw new Error('Failed to load rates');
+
+        // Build rates[currency][bankId] lookup
+        var lookup = {};
+        for (var bankId in data.banks) {
+          var bankRates = data.banks[bankId].rates;
+          for (var code in bankRates) {
+            if (!lookup[code]) lookup[code] = {};
+            lookup[code][bankId] = bankRates[code];
+          }
+        }
+        this.rates = lookup;
+        this.error = null;
+      } catch(e) { this.error = e.message; }
+      this.loading = false;
+    },
+
+    formatRate: function(v) { return v != null ? (v < 10 ? v.toFixed(4) : v.toFixed(2)) : 'n/a'; },
+  };
+}
+</script>

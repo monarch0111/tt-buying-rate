@@ -1,0 +1,6 @@
+name = "indian-forex-tracker-web"
+compatibility_date = "2024-04-23"
+
+# Cloudflare Pages project
+# Build command: pnpm --filter web build
+# Build output directory: apps/web/dist

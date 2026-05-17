@@ -1,0 +1,22 @@
+{
+  "name": "@forex/web",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "deploy": "wrangler pages deploy dist",
+    "typecheck": "astro check && tsc --noEmit"
+  },
+  "dependencies": {
+    "@forex/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.5.10",
+    "astro": "^4.7.0",
+    "typescript": "^5.4.0",
+    "wrangler": "^3.53.0"
+  }
+}

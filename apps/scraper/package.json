@@ -1,0 +1,20 @@
+{
+  "name": "@forex/scraper",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "scrape": "node src/index.js",
+    "scrape:hdfc": "node src/index.js --bank hdfc",
+    "scrape:axis": "node src/index.js --bank axis",
+    "scrape:icici": "node src/index.js --bank icici",
+    "scrape:kotak": "node src/index.js --bank kotak",
+    "scrape:pnb": "node src/index.js --bank pnb",
+    "scrape:sbi": "node src/index.js --bank sbi",
+    "test": "node src/index.js --dry-run"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1048.0",
+    "playwright": "^1.44.0"
+  }
+}

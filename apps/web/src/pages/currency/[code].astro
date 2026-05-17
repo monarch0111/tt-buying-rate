@@ -1,0 +1,223 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { CURRENCY_CODES, CURRENCY_NAME_BY_CODE } from '@forex/shared';
+import { R2_PUBLIC_URL } from '../../config';
+
+const code = Astro.params.code;
+
+export function getStaticPaths() {
+  return CURRENCY_CODES.map((currencyCode) => ({ params: { code: currencyCode } }));
+}
+
+const currencyName = code ? CURRENCY_NAME_BY_CODE[code] || code : 'Currency';
+---
+
+<Layout title={`${code} | ${currencyName} TT Buying Rates`}>
+  <div class="report-page" x-data="currencyDetail" x-init="init()" x-cloak data-currency-code={code} data-currency-name={currencyName} data-r2-url={R2_PUBLIC_URL}>
+    <div class="report-header">
+      <div>
+        <div class="eyebrow">Currency report</div>
+        <h1 class="report-title">
+          <span x-text="currencyCode"></span>
+          <span style="color: var(--text-muted); font-weight: 500; font-size: 1.05rem; margin-left: 8px;" x-text="currencyName"></span>
+        </h1>
+        <p class="report-subtitle">Bank-by-bank TT buying comparison with recent trend context for the selected currency.</p>
+      </div>
+      <div class="report-actions">
+        <a href="/" class="btn">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="15 18 9 12 15 6"/></svg>
+          Dashboard
+        </a>
+      </div>
+    </div>
+
+    <template x-if="!loading && banks.length > 0">
+      <div class="kpi-grid fade-up">
+        <div class="card kpi-card">
+          <div class="kpi-label">Best rate</div>
+          <div class="kpi-value rate-best" x-text="bestRate ? '₹' + formatRate(bestRate) : 'n/a'">n/a</div>
+          <div class="kpi-meta" x-text="topBankName"></div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Worst rate</div>
+          <div class="kpi-value" style="color: var(--text-secondary);" x-text="worstRate ? '₹' + formatRate(worstRate) : 'n/a'">n/a</div>
+          <div class="kpi-meta">Lowest source</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Spread</div>
+          <div class="kpi-value" x-text="spread ? '₹' + formatRate(spread) : 'n/a'">n/a</div>
+          <div class="kpi-meta">Best minus worst</div>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="!loading && banks.length > 0">
+      <div class="panel fade-up">
+      <div class="panel-head">
+        <div class="panel-title">Bank comparison</div>
+        <div class="panel-note" x-text="banks.length + ' sources ranked by rate'"></div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Bank</th><th style="text-align: right;">Rate (₹)</th><th style="text-align: right;">vs Best</th></tr></thead>
+          <tbody>
+            <template x-for="b in banks" :key="b.id">
+              <tr>
+                <td><a :href="'/bank/' + b.id" style="font-weight: 500; color: var(--text-primary); text-decoration: none;" x-text="b.name"></a></td>
+                <td style="text-align: right;" :class="(b.ttBuying / b.unit) === bestRate ? 'rate-cell rate-best' : 'rate-cell'" x-text="'₹' + formatRate(b.ttBuying / b.unit)"></td>
+                <td style="text-align: right; font-size: 0.78rem;" :style="b.diff > 0 ? 'color: var(--loss)' : b.diff === 0 ? 'color: var(--accent)' : 'color: var(--text-muted)'" x-text="b.diff !== 0 ? (b.diff > 0 ? '+' : '') + formatRate(Math.abs(b.diff)) : 'Best'"></td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    </template>
+
+    <template x-if="!loading && historyLoaded">
+      <div class="panel fade-up" style="overflow: hidden;">
+      <div class="panel-head">
+        <div class="panel-title">Trend</div>
+        <div class="toggler-group">
+          <template x-for="d in [{v:7,l:'7D'},{v:14,l:'14D'},{v:30,l:'30D'}]" :key="d.v">
+            <button @click="historyDays = d.v; loadHistory()"
+              :class="historyDays === d.v ? 'toggler toggler-active' : 'toggler toggler-inactive'"
+              x-text="d.l"></button>
+          </template>
+        </div>
+      </div>
+      <div style="padding: 14px 12px 8px;">
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 10px;">
+          <template x-for="(h, i) in historyData" :key="i">
+            <span style="font-size: 0.7rem; color: var(--text-secondary); display: flex; align-items: center; gap: 4px;">
+              <span style="width: 10px; height: 3px; border-radius: 2px; display: inline-block;" :style="`background: ${colors[i]}`"></span>
+              <span x-text="h.name"></span>
+            </span>
+          </template>
+        </div>
+        <svg :viewBox="`0 0 ${chartW} ${chartH}`" style="width: 100%; height: 220px; overflow: visible;" role="img" :aria-label="'Exchange rate trend chart for ' + currencyCode">
+          <template x-for="i in 5" :key="'g'+i">
+            <line x1="44" :x2="chartW-10" :y1="(chartH-30)*(i-1)/4+10" :y2="(chartH-30)*(i-1)/4+10" stroke="var(--border)" stroke-dasharray="3,3"/>
+          </template>
+          <template x-for="i in 5" :key="'y'+i">
+            <text :x="40" :y="(chartH-30)*(4-i+1)/4+14" text-anchor="end" style="font-size:9px;fill:var(--text-muted);font-family:var(--font-mono);" x-text="formatAxis(yMin + (yMax-yMin)*(i-1)/4)"></text>
+          </template>
+          <template x-for="(h, hi) in historyData" :key="'l'+hi">
+            <polyline :points="h.points.map(p => p.join(',')).join(' ')" fill="none" :stroke="colors[hi]" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+          </template>
+        </svg>
+      </div>
+    </div>
+    </div>
+    </template>
+
+    <template x-if="error">
+      <div class="error-card">
+        <p style="color: var(--loss); font-size: 0.85rem;" x-text="error"></p>
+      </div>
+    </template>
+  </div>
+</Layout>
+
+<style>
+  .toggler-group { display: flex; background: var(--bg-inset); border-radius: 8px; padding: 3px; border: 1px solid var(--border); flex-shrink: 0; }
+  .toggler { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 700; cursor: pointer; border: 0; font-family: var(--font-sans); background: transparent; color: var(--text-secondary); outline: none; }
+  .toggler-active { background: var(--accent); color: var(--on-accent); }
+  .toggler-inactive:hover { color: var(--text-primary); }
+</style>
+
+<script is:inline>
+function currencyDetail() {
+  const config = getForexConfig();
+  const bankIds = (config.banks || []).map(function(bank) { return bank.id; });
+  const bankNames = config.bankNames || {};
+  const code = this.$el.dataset.currencyCode;
+  return {
+    r2url: this.$el.dataset.r2Url,
+    currencyCode: code,
+    currencyName: this.$el.dataset.currencyName,
+    loading: true, error: null, historyLoaded: false,
+    banks: [], bestRate: null, worstRate: null, spread: null,
+    historyData: [], historyDays: 7,
+    colors: ['oklch(0.52 0.12 182)','oklch(0.52 0.12 254)','oklch(0.58 0.12 53)','oklch(0.58 0.14 28)','oklch(0.54 0.12 306)','oklch(0.56 0.12 350)'],
+    chartW: 800, chartH: 220,
+    get yMin() {
+      if (!this.historyData.length) return 0;
+      const y = this.historyData.flatMap(h => h.points.map(p => parseFloat(p[1])));
+      return y.length ? Math.min(...y) - 0.5 : 0;
+    },
+    get topBankName() {
+      return this.banks.length ? this.banks[0].name : 'Top source';
+    },
+    get yMax() {
+      if (!this.historyData.length) return 0;
+      const y = this.historyData.flatMap(h => h.points.map(p => parseFloat(p[1])));
+      return y.length ? Math.max(...y) + 0.5 : 0;
+    },
+    formatAxis(v) { return v < 10 ? v.toFixed(2) : v.toFixed(0); },
+    async init() { await this.loadRates(); },
+    async loadRates() {
+      try {
+        const res = await fetch(this.r2url + '/latest.json');
+        const json = await res.json();
+        if (!json || !json.banks) throw new Error('No data');
+        const data = json;
+        const entries = [];
+        for (const [bid, bd] of Object.entries(data.banks)) {
+          if (bd.rates[this.currencyCode]) {
+            entries.push({id: bid, name: bankNames[bid] || bid, ...bd.rates[this.currencyCode]});
+          }
+        }
+        entries.sort((a,b) => (b.ttBuying/b.unit) - (a.ttBuying/a.unit));
+        const best = entries.length ? entries[0].ttBuying / entries[0].unit : 0;
+        this.banks = entries.map(e => ({...e, diff: (e.ttBuying/e.unit) - best}));
+        if (entries.length > 0) {
+          const rates = entries.map(e => e.ttBuying/e.unit);
+          this.bestRate = Math.max(...rates);
+          this.worstRate = Math.min(...rates);
+          this.spread = this.bestRate - this.worstRate;
+        }
+        this.error = null;
+      } catch(e) { this.error = e.message; }
+      this.loading = false;
+      this.loadHistory();
+    },
+    async loadHistory() {
+      try {
+        const allRates = [];
+        const bankData = {};
+        for (const bid of bankIds) {
+          try {
+            const res = await fetch(this.r2url + '/history/' + bid + '/' + this.currencyCode + '.json');
+            const json = await res.json();
+            if (json && json.points && json.points.length > 1) {
+              // Filter by days client-side
+              var cutoff = new Date();
+              cutoff.setDate(cutoff.getDate() - this.historyDays);
+              const filtered = json.points.filter(function(d) { return new Date(d.date) >= cutoff; });
+              const norm = filtered.map(function(d) { return {date: d.date, rate: d.rate / (d.unit||1)}; });
+              bankData[bid] = norm;
+              norm.forEach(function(d) { allRates.push(d.rate); });
+            }
+          } catch(e) {}
+        }
+        if (allRates.length === 0) { this.historyData = []; this.historyLoaded = true; return; }
+        const gMin = Math.min(...allRates);
+        const gMax = Math.max(...allRates);
+        const gRange = gMax - gMin || 1;
+        this.historyData = [];
+        for (const [bid, norm] of Object.entries(bankData)) {
+          const points = norm.map((d, i) => {
+            const x = 50 + (i / (norm.length-1)) * (this.chartW - 60);
+            const y = 10 + (1 - (d.rate - gMin) / gRange) * (this.chartH - 40);
+            return [x.toFixed(1), y.toFixed(1)];
+          });
+          this.historyData.push({name: bankNames[bid], points});
+        }
+        this.historyLoaded = true;
+      } catch(e) { this.historyLoaded = true; }
+    },
+    formatRate(v) { return v != null ? (v < 10 ? v.toFixed(4) : v.toFixed(2)) : 'n/a'; },
+  };
+}
+</script>

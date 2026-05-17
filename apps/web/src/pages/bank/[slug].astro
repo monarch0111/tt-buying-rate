@@ -1,0 +1,504 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import { ENABLED_BANKS, BANK_NAME_BY_ID } from '@forex/shared';
+import { R2_PUBLIC_URL } from '../../config';
+
+const bankId = Astro.params.slug;
+const bankName = bankId ? BANK_NAME_BY_ID[bankId] || bankId : 'Bank';
+
+export function getStaticPaths() {
+  return ENABLED_BANKS.map((bank) => ({ params: { slug: bank.id } }));
+}
+---
+
+<Layout title={`${bankName} | TT Buying Rates`}>
+  <script defer src="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.iife.min.js"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.31/dist/uPlot.min.css" />
+
+  <div class="report-page" x-data="bankDetail" x-init="init()" x-cloak data-bank-id={bankId} data-bank-name={bankName} data-r2-url={R2_PUBLIC_URL}>
+    <nav class="breadcrumb">
+      <a href="/" class="breadcrumb-link">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+        <span>Dashboard</span>
+      </a>
+      <span class="breadcrumb-current" x-text="bankName"></span>
+    </nav>
+
+    <div class="report-header">
+      <div class="bank-heading">
+        <div class="hero-icon" x-text="bankName.substring(0,2)"></div>
+        <div>
+          <div class="eyebrow">Source report</div>
+          <h1 class="report-title" x-text="bankName"></h1>
+          <div class="hero-meta">
+            <template x-if="lastUpdated">
+              <span class="badge badge-muted" x-text="'Updated ' + timeAgo(lastUpdated)"></span>
+            </template>
+            <template x-if="!stale && lastUpdated">
+              <span class="badge badge-live">Live</span>
+            </template>
+            <template x-if="stale && lastUpdated">
+              <span class="badge badge-stale">Stale</span>
+            </template>
+          </div>
+        </div>
+      </div>
+      <div class="report-actions">
+        <a href="/" class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+          Dashboard
+        </a>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <template x-if="loading">
+      <div>
+        <div class="kpi-grid">
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+          <div class="skeleton-card"></div>
+        </div>
+        <div class="panel" style="padding: 20px;">
+          <div style="height: 250px;" class="skeleton"></div>
+        </div>
+        <div class="panel" style="overflow: hidden;">
+          <div style="padding: 14px 18px; border-bottom: 1px solid var(--border);"><div style="height: 16px; width: 120px;" class="skeleton"></div></div>
+          <div style="padding: 12px 18px;">
+            <div style="display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border);">
+              <div style="height: 14px; width: 80px;" class="skeleton"></div>
+              <div style="height: 14px; width: 60px;" class="skeleton"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Error -->
+    <template x-if="error">
+      <div class="error-card">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--loss)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
+        <p x-text="error"></p>
+      </div>
+    </template>
+
+    <!-- KPI Cards -->
+    <template x-if="!loading && currencies.length > 0">
+      <div class="kpi-grid fade-up">
+        <div class="card kpi-card">
+          <div class="kpi-label">Currencies</div>
+          <div class="kpi-value" x-text="currencies.length"></div>
+          <div class="kpi-meta">Current quote count</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Best rate</div>
+          <div class="kpi-value rate-best" x-text="bestEffective ? '₹' + formatRate(bestEffective) : 'n/a'"></div>
+          <div class="kpi-meta">Highest effective value</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Lowest rate</div>
+          <div class="kpi-value" style="color: var(--text-secondary);" x-text="worstEffective ? '₹' + formatRate(worstEffective) : 'n/a'"></div>
+          <div class="kpi-meta">Floor in this bank</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Spread</div>
+          <div class="kpi-value" style="color: var(--text-secondary);" x-text="spread ? '₹' + formatRate(spread) : 'n/a'"></div>
+          <div class="kpi-meta">Max minus min</div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Chart Section -->
+    <template x-if="!loading && currencies.length > 0">
+      <div>
+        <div class="panel chart-workbench">
+        <div class="panel-head">
+          <div class="pill-row">
+            <span class="panel-title">Trend workbench</span>
+            <div class="pills">
+              <template x-for="c in currencies" :key="c.code">
+                <button @click="toggleCurrency(c.code)"
+                  :class="isSelected(c.code) ? 'pill pill-active' : 'pill pill-inactive'"
+                  :style="isSelected(c.code) ? '--pill-color:' + currencyColor(c.code) : ''"
+                  x-text="c.code"></button>
+              </template>
+            </div>
+          </div>
+          <div class="toggler-group">
+            <template x-for="d in days" :key="d.v">
+              <button @click="setDays(d.v)"
+                :class="historyDays === d.v ? 'toggler toggler-active' : 'toggler toggler-inactive'"
+                x-text="d.l"></button>
+            </template>
+          </div>
+        </div>
+
+        <template x-if="!chartLoading && selectedCurrencies.length === 0">
+          <div class="chart-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-linecap="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            <p>Select currencies above to compare their rate trends</p>
+          </div>
+        </template>
+
+        <template x-if="chartLoading">
+          <div style="overflow: hidden;">
+            <div style="padding: 14px 16px;"><div style="height: 14px; width: 140px;" class="skeleton"></div></div>
+            <div style="padding: 0 16px 16px; height: 420px;" class="skeleton"></div>
+          </div>
+        </template>
+
+        <template x-if="!chartLoading && historyLoaded && selectedCurrencies.length > 0 && !hasChartData">
+          <div class="chart-empty">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" stroke-width="1.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            <p>No historical data available yet. Check back later.</p>
+          </div>
+        </template>
+
+        <div id="chart-slot" class="chart-card" style="display:none;">
+        </div>
+        </div>
+      </div>
+    </template>
+
+    <!-- Rates Table -->
+    <template x-if="!loading && currencies.length > 0">
+      <div class="panel fade-up">
+        <div class="panel-head">
+          <div class="panel-title">Current rates</div>
+          <span class="panel-note" x-text="currencies.length + ' currencies'"></span>
+        </div>
+          <div class="table-scroll">
+            <table class="rates-table">
+              <thead>
+                <tr>
+                  <th style="width: 32px;"></th>
+                  <th>Currency</th>
+                  <th style="text-align: right;">TT Buying</th>
+                  <th style="text-align: center; width: 72px;">Per</th>
+                  <th style="text-align: right;">Effective</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="c in currencies" :key="c.code">
+                  <tr @click="toggleCurrency(c.code)"
+                    :class="isSelected(c.code) ? 'row-selected' : ''">
+                    <td class="td-indicator">
+                      <span x-show="isSelected(c.code)" class="color-dot" :style="'background:' + currencyColor(c.code)"></span>
+                    </td>
+                    <td class="td-currency">
+                      <a :href="'/currency/' + c.code" class="currency-link" @click.stop>
+                        <span class="currency-code" x-text="c.code"></span>
+                        <span class="currency-name" x-text="c.name"></span>
+                      </a>
+                    </td>
+                    <td class="td-rate" x-text="'₹' + formatRate(c.ttBuying)"></td>
+                    <td class="td-unit" x-text="c.unit === 1 ? '1 unit' : c.unit + ' units'"></td>
+                    <td class="td-effective">
+                      <span class="rate-best" x-text="'₹' + formatRate(c.ttBuying / c.unit)"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+      </div>
+    </template>
+  </div>
+</Layout>
+
+<style>
+  .breadcrumb { display: flex; align-items: center; gap: 8px; font-size: 0.78rem; }
+  .breadcrumb-link { display: inline-flex; align-items: center; gap: 4px; color: var(--text-muted); text-decoration: none; transition: color 0.15s; }
+  .breadcrumb-link:hover { color: var(--text-primary); text-decoration: none; }
+  .breadcrumb-link::after { content: '/'; color: var(--text-muted); margin-left: 5px; }
+  .breadcrumb-current { color: var(--text-primary); font-weight: 600; }
+  .bank-heading { display: flex; align-items: center; gap: 14px; }
+  .hero-icon { width: 54px; height: 54px; border-radius: 8px; background: var(--accent-dim); color: var(--accent); border: 1px solid color-mix(in oklch, var(--accent) 20%, var(--border)); display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 1rem; font-family: var(--font-mono); flex-shrink: 0; }
+  .hero-meta { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+  .chart-workbench { overflow: hidden; }
+  .pill-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .pills { display: flex; flex-wrap: wrap; gap: 5px; }
+  .pill { padding: 4px 11px; border-radius: 9999px; font-size: 0.72rem; font-weight: 600; font-family: var(--font-mono); cursor: pointer; border: 1px solid; transition: all 0.18s ease; line-height: 1.45; outline: none; }
+  .pill:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .pill-active { background: var(--pill-color); color: var(--on-accent); border-color: var(--pill-color); }
+  .pill-inactive { background: var(--bg-inset); color: var(--text-secondary); border-color: var(--border); }
+  .pill-inactive:hover { border-color: var(--border-strong); color: var(--text-primary); }
+  .toggler-group { display: flex; background: var(--bg-inset); border-radius: 8px; padding: 3px; border: 1px solid var(--border); flex-shrink: 0; }
+  .toggler { padding: 4px 10px; border-radius: 6px; font-size: 0.72rem; font-weight: 600; cursor: pointer; border: none; transition: all 0.15s ease; font-family: var(--font-sans); background: transparent; color: var(--text-secondary); outline: none; }
+  .toggler:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+  .toggler-active { background: var(--accent); color: var(--on-accent); }
+  .toggler-inactive:hover { color: var(--text-primary); }
+  .chart-card { overflow: hidden; padding: 8px 10px 16px; }
+  .chart-empty { padding: 48px 20px; text-align: center; color: var(--text-muted); display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .chart-empty p { font-size: 0.85rem; margin: 0; }
+  .section-header { display: flex; align-items: baseline; gap: 8px; margin-bottom: 0.6rem; }
+  .section-title { font-size: 0.72rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; margin: 0; }
+  .section-subtitle { font-size: 0.68rem; color: var(--text-muted); }
+  .rates-table-wrap { border-radius: var(--radius); }
+  .rates-table { width: 100%; border-collapse: separate; border-spacing: 0; }
+  .rates-table thead th { text-transform: uppercase; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.08em; color: var(--text-muted); padding: 12px 14px; text-align: left; border-bottom: 1px solid var(--border); background: color-mix(in oklch, var(--bg-card) 96%, var(--bg-inset)); }
+  .rates-table tbody td { padding: 10px 14px; font-size: 0.85rem; border-bottom: 1px solid var(--border); }
+  .rates-table tbody tr { transition: background 0.1s; cursor: pointer; }
+  .rates-table tbody tr:hover { background: var(--bg-card-hover); }
+  .rates-table tbody tr.row-selected { background: var(--accent-dim); }
+  .td-indicator { width: 32px; padding: 10px 0 10px 14px; }
+  .color-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .currency-link { font-weight: 500; color: var(--text-primary); text-decoration: none; display: inline-flex; align-items: baseline; gap: 4px; }
+  .currency-link:hover { color: var(--accent); text-decoration: none; }
+  .currency-code { font-family: var(--font-mono); font-weight: 600; font-size: 0.85rem; }
+  .currency-name { color: var(--text-muted); font-size: 0.72rem; }
+  .td-rate { text-align: right; font-family: var(--font-mono); font-weight: 500; color: var(--text-secondary); }
+  .td-unit { text-align: center; color: var(--text-muted); font-size: 0.78rem; }
+  .td-effective { text-align: right; }
+
+  /* uPlot overrides */
+  .u-over, .u-under { overflow: visible !important; }
+
+  @media (max-width: 768px) {
+    .bank-heading { align-items: flex-start; }
+    .panel-head { align-items: flex-start; flex-direction: column; }
+    .toggler-group { align-self: flex-start; }
+    .hero-icon { width: 40px; height: 40px; font-size: 0.85rem; }
+    .kpi-grid { grid-template-columns: repeat(2, 1fr) !important; }
+    .rates-table thead th, .rates-table tbody td { padding: 8px 10px; font-size: 0.78rem; }
+  }
+</style>
+
+<script is:inline>
+function bankDetail() {
+  var CURRENCY_NAMES = getForexConfig().currencyNames || {};
+  var PALETTE  = ['oklch(0.52 0.12 182)','oklch(0.52 0.12 254)','oklch(0.58 0.12 53)','oklch(0.58 0.14 28)','oklch(0.54 0.12 306)','oklch(0.56 0.12 350)'];
+  var PALETTE_F = ['oklch(0.52 0.12 182 / 0.10)','oklch(0.52 0.12 254 / 0.10)','oklch(0.58 0.12 53 / 0.10)','oklch(0.58 0.14 28 / 0.10)','oklch(0.54 0.12 306 / 0.10)','oklch(0.56 0.12 350 / 0.10)'];
+
+  return {
+    bankId: this.$el.dataset.bankId,
+    bankName: this.$el.dataset.bankName,
+    r2url: this.$el.dataset.r2Url,
+    loading: true, error: null,
+    currencies: [], lastUpdated: null, stale: false,
+    selectedCurrencies: ['USD'],
+    chartLoading: false, historyLoaded: false, hasChartData: false,
+    historyMulti: {}, historyDays: 7,
+    days: [{v:7,l:'7D'},{v:14,l:'14D'},{v:30,l:'30D'}],
+    _uplot: null,
+    _renderTimer: null,
+
+    get bestEffective() {
+      if (!this.currencies.length) return null;
+      var max = -Infinity;
+      for (var i = 0; i < this.currencies.length; i++) { var v = this.currencies[i].ttBuying / this.currencies[i].unit; if (v > max) max = v; }
+      return max;
+    },
+    get worstEffective() {
+      if (!this.currencies.length) return null;
+      var min = Infinity;
+      for (var i = 0; i < this.currencies.length; i++) { var v = this.currencies[i].ttBuying / this.currencies[i].unit; if (v < min) min = v; }
+      return min;
+    },
+    get spread() {
+      if (this.bestEffective == null || this.worstEffective == null) return null;
+      return this.bestEffective - this.worstEffective;
+    },
+    get showChart() {
+      return !this.chartLoading && this.historyLoaded && this.selectedCurrencies.length > 0 && this.hasChartData;
+    },
+
+    isSelected: function(code) { return this.selectedCurrencies.indexOf(code) >= 0; },
+    currencyColor: function(code) {
+      var idx = this.selectedCurrencies.indexOf(code);
+      return idx >= 0 ? PALETTE[idx] : 'var(--text-muted)';
+    },
+
+    toggleCurrency: function(code) {
+      var idx = this.selectedCurrencies.indexOf(code);
+      if (idx >= 0) {
+        if (this.selectedCurrencies.length === 1) { this.selectedCurrencies.splice(idx, 1); this._destroyChart(); return; }
+        this.selectedCurrencies.splice(idx, 1);
+      } else {
+        if (this.selectedCurrencies.length >= 6) return;
+        this.selectedCurrencies.push(code);
+      }
+      this.loadAllHistory();
+    },
+
+    setDays: function(v) { this.historyDays = v; this.loadAllHistory(); },
+
+    // ─── Chart ───────────────────────────────────────────────────
+    _destroyChart: function() {
+      if (this._uplot) { this._uplot.destroy(); this._uplot = null; }
+      var slot = document.getElementById('chart-slot');
+      if (slot) slot.innerHTML = '';
+    },
+
+    _scheduleRender: function() {
+      var self = this;
+      clearTimeout(this._renderTimer);
+      this._renderTimer = setTimeout(function() { self._renderChart(); }, 150);
+    },
+
+    _renderChart: function() {
+      if (typeof uPlot === 'undefined') return;
+      if (!this.showChart) { this._destroyChart(); return; }
+
+      var slot = document.getElementById('chart-slot');
+      if (!slot) return;
+
+      // Destroy previous chart
+      if (this._uplot) { this._uplot.destroy(); this._uplot = null; }
+      slot.innerHTML = '';
+
+      // Show the slot
+      slot.style.display = '';
+
+      // Create a fresh div, append to DOM ourselves, THEN pass to uPlot
+      var chartDiv = document.createElement('div');
+      chartDiv.style.padding = '8px 0 0 0';
+      slot.appendChild(chartDiv);
+      // chartDiv is now in the document with a real parentNode.
+
+      // Build aligned data: merge all timestamps into a single x-axis
+      var allTs = {};
+      var seriesData = [];
+      for (var si = 0; si < this.selectedCurrencies.length; si++) {
+        var raw = this.historyMulti[this.selectedCurrencies[si]];
+        var map = {};
+        if (raw && raw.length) {
+          for (var k = 0; k < raw.length; k++) {
+            var t = Math.floor(new Date(raw[k].date).getTime() / 1000);
+            map[t] = raw[k].rate / (raw[k].unit || 1);
+            allTs[t] = true;
+          }
+        }
+        seriesData.push(map);
+      }
+
+      var tsKeys = Object.keys(allTs).map(Number).sort(function(a, b) { return a - b; });
+      if (tsKeys.length === 0) { slot.style.display = 'none'; return; }
+
+      var data = [tsKeys];
+      for (var j = 0; j < this.selectedCurrencies.length; j++) {
+        var vals = [];
+        for (var ti = 0; ti < tsKeys.length; ti++) {
+          var v = seriesData[j][tsKeys[ti]];
+          vals.push(v !== undefined ? v : null);
+        }
+        data.push(vals);
+      }
+
+      var mutedColor = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || 'oklch(0.57 0.018 76)';
+
+      var opts = {
+        width: slot.offsetWidth || 600,
+        height: 420,
+        cursor: { show: true, drag: { x: true, y: false }, focus: { prox: 30 } },
+        select: { show: false },
+        legend: { show: false },
+        axes: [
+          { stroke: mutedColor, grid: { stroke: mutedColor, width: 1, dash: [3,3] }, ticks: { stroke: mutedColor, width: 1, size: 4 }, font: '11px "IBM Plex Mono", monospace', values: [[3600*24*7, '{MMM} {DD}', 7, null, null, null, null, 1],[3600*24, '{MMM} {DD}', null, null, null, null, null, 1]] },
+          { stroke: mutedColor, grid: { stroke: mutedColor, width: 1, dash: [3,3] }, ticks: { stroke: mutedColor, width: 1, size: 4 }, font: '11px "IBM Plex Mono", monospace', size: 66, values: function(u, ticks) { return ticks.map(function(v) { return '₹' + (v < 10 ? v.toFixed(4) : v.toFixed(2)); }); } }
+        ],
+        series: [{}],
+      };
+      for (var n = 0; n < this.selectedCurrencies.length; n++) {
+        opts.series.push({ stroke: PALETTE[n], fill: PALETTE_F[n], width: 2, points: { show: true, size: 3 }, label: this.selectedCurrencies[n] });
+      }
+
+      try {
+        this._uplot = new uPlot(opts, data, chartDiv);
+      } catch (e) {
+        console.error('uPlot init error:', e);
+        slot.innerHTML = '';
+        slot.style.display = 'none';
+      }
+    },
+
+    // ─── Data ─────────────────────────────────────────────────────
+    init: function() {
+      var self = this;
+      fetch(this.r2url + '/banks/' + this.bankId + '.json')
+        .then(function(r) {
+          if (!r.ok) throw new Error('No bank file');
+          return r.json();
+        })
+        .then(function(bd) {
+          if (!bd || !bd.rates) throw new Error('Bank not found');
+          self.lastUpdated = bd.lastUpdated;
+          self.stale = new Date(bd.lastUpdated).getTime() < Date.now() - 6 * 3600000;
+          self.currencies = [];
+          var entries = Object.entries(bd.rates);
+          for (var i = 0; i < entries.length; i++) {
+            var e = entries[i];
+            self.currencies.push({ code: e[0], name: CURRENCY_NAMES[e[0]] || e[0], ttBuying: e[1].ttBuying, unit: e[1].unit });
+          }
+          self.currencies.sort(function(a, b) { return (b.ttBuying / b.unit) - (a.ttBuying / a.unit); });
+          var hasUSD = false;
+          for (var j = 0; j < self.currencies.length; j++) { if (self.currencies[j].code === 'USD') { hasUSD = true; break; } }
+          if (!hasUSD && self.currencies.length > 0) self.selectedCurrencies = [self.currencies[0].code];
+          self.error = null;
+        })
+        .catch(function(e) { self.error = e.message; })
+        .then(function() {
+          self.loading = false;
+          if (!self.error) self.loadAllHistory();
+        });
+    },
+
+    loadAllHistory: function() {
+      var self = this;
+      if (this.selectedCurrencies.length === 0) {
+        this.historyMulti = {};
+        this.hasChartData = false;
+        this.historyLoaded = true;
+        this.chartLoading = false;
+        this._destroyChart();
+        return;
+      }
+      this.chartLoading = true;
+      this.historyLoaded = false;
+
+      var allDone = 0;
+      var newMulti = {};
+
+      for (var i = 0; i < this.selectedCurrencies.length; i++) {
+        (function(code) {
+          fetch(self.r2url + '/history/' + self.bankId + '/' + code + '.json')
+            .then(function(r) { return r.json(); })
+            .then(function(json) {
+              if (!json || !json.points) return [];
+              var cutoff = new Date();
+              cutoff.setDate(cutoff.getDate() - self.historyDays);
+              var filtered = [];
+              for (var k = 0; k < json.points.length; k++) {
+                var d = json.points[k];
+                if (new Date(d.date) >= cutoff) filtered.push(d);
+              }
+              return filtered;
+            })
+            .catch(function() { return []; })
+            .then(function(data) {
+              newMulti[code] = data;
+              allDone++;
+              if (allDone === self.selectedCurrencies.length) {
+                self.historyMulti = newMulti;
+                self.hasChartData = Object.values(newMulti).some(function(a) { return a.length > 0; });
+                self.chartLoading = false;
+                self.historyLoaded = true;
+                self._scheduleRender();
+              }
+            });
+        })(this.selectedCurrencies[i]);
+      }
+    },
+
+    formatRate: function(v) { return v != null ? (v < 10 ? v.toFixed(4) : v.toFixed(2)) : 'n/a'; },
+    timeAgo: function(d) {
+      var s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s / 60) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    },
+  };
+}
+</script>

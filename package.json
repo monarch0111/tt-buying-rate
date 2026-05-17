@@ -1,0 +1,20 @@
+{
+  "name": "indian-forex-tracker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Track TT Buying forex rates from Indian banks",
+  "scripts": {
+    "dev:web": "pnpm --filter web dev",
+    "build": "pnpm --filter shared build && pnpm --filter web build",
+    "deploy:web": "pnpm --filter web deploy",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "packageManager": "pnpm@8.15.0",
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -1,0 +1,266 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { R2_PUBLIC_URL } from '../config';
+---
+
+<Layout title="Forex Rates India | TT Buying Rates Dashboard">
+  <div class="report-page" x-data="dashboard()" x-init="init()" x-cloak data-r2-url={R2_PUBLIC_URL}>
+    <div class="report-header">
+      <div>
+        <div class="eyebrow">Market snapshot</div>
+        <h1 class="report-title">TT buying rates, ranked by bank and currency</h1>
+        <p class="report-subtitle">
+          Compare live TT buying rates across Indian banks and Wise. The matrix highlights the best published rates to help you make faster remittance decisions.
+        </p>
+      </div>
+      <div class="report-actions">
+        <span class="badge badge-muted" x-show="lastUpdated" x-text="'Updated ' + timeAgo(lastUpdated)"></span>
+        <span class="badge badge-live" x-show="!loading && staleCount === 0">All live</span>
+        <span class="badge badge-stale" x-show="!loading && staleCount > 0" x-text="staleCount + ' stale'"></span>
+      </div>
+    </div>
+
+    <template x-if="loading">
+      <div class="kpi-grid">
+        <template x-for="i in 4" :key="i">
+          <div class="skeleton-card"></div>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="!loading && banks.length > 0">
+      <div class="kpi-grid fade-up">
+        <div class="card kpi-card">
+          <div class="kpi-label">Banks</div>
+          <div class="kpi-value" x-text="banks.length">0</div>
+          <div class="kpi-meta">Active sources</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Currencies</div>
+          <div class="kpi-value" x-text="rows.length">0</div>
+          <div class="kpi-meta">Tracked instruments</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Best USD</div>
+          <div class="kpi-value rate-best" x-text="usdBest ? '₹' + formatRate(usdBest) : 'n/a'">n/a</div>
+          <div class="kpi-meta">Highest effective rate</div>
+        </div>
+        <div class="card kpi-card">
+          <div class="kpi-label">Freshness</div>
+          <div class="kpi-value" x-text="staleCount === 0 ? 'Live' : staleCount"></div>
+          <div class="kpi-meta" x-text="staleCount === 0 ? 'No stale feeds' : 'Sources need review'"></div>
+        </div>
+      </div>
+    </template>
+
+    <template x-if="error">
+      <div class="error-card">
+        <p style="color: var(--loss); font-size: 0.85rem;" x-text="error"></p>
+      </div>
+    </template>
+
+    <template x-if="!loading && banks.length > 0">
+      <div class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Rate matrix</div>
+            <div class="panel-note">Effective INR per unit after normalizing published units</div>
+          </div>
+          <div class="filter-row">
+            <select x-model="currencyFilter" aria-label="Filter by currency">
+              <option value="">All currencies</option>
+              <template x-for="c in currencyList" :key="c.code">
+                <option :value="c.code" x-text="c.code + ' / ' + c.name"></option>
+              </template>
+            </select>
+            <select x-model="sortBy" aria-label="Sort by">
+              <option value="popularity">Popularity</option>
+              <option value="currency">Currency</option>
+              <option value="bestRate">Best rate</option>
+            </select>
+            <label class="toggle-row">
+              <input type="checkbox" x-model="highlightBest" />
+              Top tiers
+            </label>
+          </div>
+        </div>
+        <template x-if="filteredRows.length > 0">
+          <div class="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th style="min-width: 88px;">Currency</th>
+                  <template x-for="bank in banks" :key="bank.id">
+                    <th style="min-width: 100px; text-align: right;" x-text="bank.name"></th>
+                  </template>
+                  <th style="text-align: right; min-width: 84px;">Best</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="row in filteredRows" :key="row.currency">
+                  <tr @click="window.location.href='/currency/' + row.currency">
+                    <td>
+                      <a :href="'/currency/' + row.currency" class="currency-link">
+                        <span class="currency-code" x-text="row.currency"></span>
+                        <span class="currency-name" x-text="row.symbol"></span>
+                      </a>
+                    </td>
+                    <template x-for="bank in banks" :key="bank.id">
+                      <td style="text-align: right;"
+                         :class="rateCellClass(row, bank.id)"
+                         x-text="formatBankRate(row, bank.id)">
+                      </td>
+                    </template>
+                    <td style="text-align: right;">
+                      <span class="rate-cell rate-best" x-text="'₹' + formatRate(row.bestRate)"></span>
+                    </td>
+                  </tr>
+                </template>
+              </tbody>
+            </table>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template x-if="!loading && banks.length > 0">
+      <div class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Coverage</div>
+          <div class="panel-note">Direct R2 read files per source</div>
+        </div>
+        <div class="panel-body">
+        <div class="bank-grid">
+          <template x-for="bank in banks" :key="bank.id">
+            <a :href="'/bank/' + bank.id" class="source-tile">
+              <div>
+                <div class="source-name" x-text="bank.name"></div>
+                <div class="source-meta" x-text="Object.keys(bankStatus[bank.id]?.rates || {}).length + ' currencies'"></div>
+              </div>
+              <span class="badge" :class="bankStatus[bank.id]?.stale ? 'badge-stale' : 'badge-live'" x-text="bankStatus[bank.id]?.stale ? 'Stale' : 'Live'"></span>
+            </a>
+          </template>
+        </div>
+        </div>
+      </div>
+    </template>
+  </div>
+</Layout>
+
+<style>
+  .toggle-row { display: inline-flex; align-items: center; gap: 7px; color: var(--text-secondary); font-size: 0.8rem; font-weight: 650; cursor: pointer; }
+  .currency-link { display: inline-flex; align-items: baseline; gap: 6px; color: var(--text-primary); font-weight: 700; }
+  .currency-code { font-family: var(--font-mono); font-size: 0.86rem; }
+  .currency-name { color: var(--text-muted); font-size: 0.72rem; }
+  .source-tile {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 14px;
+    padding: 13px 14px;
+    min-height: 66px;
+    color: var(--text-primary);
+    text-decoration: none;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg-surface);
+    transition: background-color 0.16s ease-out, border-color 0.16s ease-out, box-shadow 0.16s ease-out;
+  }
+  .source-tile:hover { background: var(--bg-card-hover); border-color: var(--border-strong); box-shadow: var(--shadow-table); }
+  .source-name { color: var(--text-primary); font-weight: 700; font-size: 0.86rem; }
+  .source-meta { color: var(--text-muted); font-size: 0.72rem; margin-top: 2px; }
+</style>
+
+<script is:inline>
+function dashboard() {
+  const config = getForexConfig();
+  const symbols = config.currencySymbols || {};
+  const bankNames = config.bankNames || {};
+
+  // Build popularity lookup: lower number = more popular (1 = USD)
+  const popularityMap = {};
+  (config.currencies || []).forEach(function(c, i) {
+    popularityMap[c.code] = c.popularity != null ? c.popularity : i + 1;
+  });
+
+  return {
+    loading: true, error: null,
+    banks: [], bankStatus: {}, rows: [],
+    currencyFilter: '', sortBy: 'popularity', highlightBest: true,
+    lastUpdated: null, staleCount: 0,
+    currencyList: (config.currencies || []).map(function(c) { return {code: c.code, name: c.name, symbol: c.symbol || symbols[c.code] || ''}; }),
+    get usdBest() { const r = this.rows.find(r => r.currency === 'USD'); return r ? r.bestRate : null; },
+    get filteredRows() {
+      let r = [...this.rows];
+      if (this.currencyFilter) r = r.filter(x => x.currency === this.currencyFilter);
+      if (this.sortBy === 'bestRate') {
+        r.sort((a,b) => b.bestRate - a.bestRate);
+      } else if (this.sortBy === 'popularity') {
+        r.sort((a,b) => (popularityMap[a.currency] || 99) - (popularityMap[b.currency] || 99));
+      } else {
+        r.sort((a,b) => a.currency.localeCompare(b.currency));
+      }
+      return r;
+    },
+    r2url: '',
+    async init() {
+      this.r2url = this.$el.dataset.r2Url;
+      await this.loadRates();
+      setInterval(() => this.loadRates(), 300000);
+    },
+    async loadRates() {
+      try {
+        const res = await fetch(this.r2url + '/latest.json');
+        const data = await res.json();
+        if (!res.ok) throw new Error('Failed to load rates');
+        this.banks = Object.keys(data.banks).map(id => ({id, name: bankNames[id] || id}));
+        this.lastUpdated = data.updatedAt;
+        this.bankStatus = {};
+        this.staleCount = 0;
+        const sixHoursAgo = Date.now() - 6*3600000;
+        for (const [id, bd] of Object.entries(data.banks)) {
+          const stale = new Date(bd.lastUpdated).getTime() < sixHoursAgo;
+          if (stale) this.staleCount++;
+          this.bankStatus[id] = {...bd, stale};
+        }
+        this.rows = this.currencyList.filter(c => {
+          let hasRate = false;
+          for (const bd of Object.values(data.banks)) { if (bd.rates[c.code]) { hasRate = true; break; } }
+          return hasRate;
+        }).map(c => {
+          const rates = {};
+          for (const [bid, bd] of Object.entries(data.banks)) {
+            if (bd.rates[c.code]) rates[bid] = bd.rates[c.code];
+          }
+          const vals = Object.values(rates).map(r => r.ttBuying / r.unit);
+          const sortedUnique = [...new Set(vals)].sort((a, b) => b - a);
+          return { currency: c.code, symbol: symbols[c.code] || '', rates, bestRate: vals.length ? Math.max(...vals) : 0, topRates: sortedUnique };
+        });
+        this.error = null;
+      } catch(e) { this.error = e.message; }
+      this.loading = false;
+    },
+    rateCellClass(row, bankId) {
+      const rate = row.rates[bankId];
+      if (!this.highlightBest || !rate) return 'rate-cell';
+      const effective = rate.ttBuying / rate.unit;
+      if (effective === row.topRates[0]) return 'rate-best-bg rate-best';
+      if (effective === row.topRates[1]) return 'rate-second-bg rate-second';
+      if (effective === row.topRates[2]) return 'rate-third-bg rate-third';
+      return 'rate-cell';
+    },
+    formatBankRate(row, bankId) {
+      const rate = row.rates[bankId];
+      return rate ? '₹' + this.formatRate(rate.ttBuying / rate.unit) : 'n/a';
+    },
+    formatRate(v) { return v != null ? (v < 10 ? v.toFixed(4) : v.toFixed(2)) : 'n/a'; },
+    timeAgo(d) {
+      const s = Math.floor((Date.now() - new Date(d).getTime()) / 1000);
+      if (s < 60) return 'just now';
+      if (s < 3600) return Math.floor(s/60) + 'm ago';
+      if (s < 86400) return Math.floor(s/3600) + 'h ago';
+      return Math.floor(s/86400) + 'd ago';
+    },
+  };
+}
+</script>
