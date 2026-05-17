@@ -1,0 +1,32 @@
+[extend]
+useDefault = true
+
+[allowlist]
+paths = [
+  '''apps/scraper/\.env\.example$''',
+]
+regexes = [
+  '''forex\.abhishekm\.in''',
+  '''google/gemini-2\.0-flash-001''',
+]
+
+[[rules]]
+id = "r2-public-url"
+description = "R2 public read URL (not a secret)"
+regex = '''pub-[0-9a-f]{24}\.r2\.dev'''
+tags = ["r2-public-url"]
+[rules.allowlist]
+regexTarget = "match"
+regexes = [
+  '''pub-[0-9a-f]{24}\.r2\.dev''',
+]
+
+[[rules]]
+id = "generic-api-key"
+description = "Generic API key detection"
+regex = '''(?i)(?:api[_-]?key|apikey|secret[_-]?key)\s*[=:]\s*['"]?[a-zA-Z0-9]{20,}'''
+tags = ["key"]
+[rules.allowlist]
+paths = [
+  '''apps/scraper/\.env\.example$''',
+]

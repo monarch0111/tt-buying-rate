@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m'
+
+echo "🔒 Running secret detection..."
+
+has_secrets=0
+
+# --- gitleaks (fast, checks staged diff) ---
+if command -v gitleaks &>/dev/null; then
+  echo "  → gitleaks scanning staged changes..."
+  if ! gitleaks protect --staged --verbose 2>/dev/null; then
+    echo -e "${RED}✗ gitleaks found secrets in staged changes!${NC}"
+    has_secrets=1
+  else
+    echo -e "${GREEN}  ✓ gitleaks: clean${NC}"
+  fi
+else
+  echo -e "${YELLOW}  ⚠ gitleaks not found, skipping${NC}"
+fi
+
+# --- trufflehog (deep scan, checks full repo history) ---
+if command -v trufflehog &>/dev/null; then
+  echo "  → trufflehog scanning git history..."
+  if ! trufflehog git file://. --no-update --only-verified --fail 2>/dev/null; then
+    echo -e "${RED}✗ trufflehog found verified secrets!${NC}"
+    has_secrets=1
+  else
+    echo -e "${GREEN}  ✓ trufflehog: clean${NC}"
+  fi
+else
+  echo -e "${YELLOW}  ⚠ trufflehog not found, skipping${NC}"
+fi
+
+if [ "$has_secrets" -ne 0 ]; then
+  echo -e "${RED}❌ Commit blocked: secrets detected. Remove them and try again.${NC}"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ No secrets found. Proceeding with commit.${NC}"
+exit 0
